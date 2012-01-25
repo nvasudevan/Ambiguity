@@ -1,0 +1,103 @@
+#!/bin/sh
+#
+CODESPACE="/home/nvasudevan/codespace"
+ACCENT="${CODESPACE}/accent/accent"
+ENTIRE="${CODESPACE}/entire/entire.c"
+LEX="/usr/bin/flex"
+CC="/usr/bin/cc"
+JAVA_HOME="/usr/java/jdk1.6.0_20"
+JAVAH="${JAVA_HOME}/bin/javah"
+JAVAC="${JAVA_HOME}/bin/javac"
+JAVA="${JAVA_HOME}/bin/java"
+RUBY="/apps/ruby/current/bin/ruby"
+AUXIL="${CODESPACE}/ruby/grammars/auxil.c"
+
+usage() {
+    echo "${1} <grammar>   :: build accent files for grammar"
+    echo
+    echo "${1} test_ambiguity   :: test for ambiguity for grammar"
+    echo 
+    echo "${1} test_ambiguity <grammar>  :: test for ambiguity for grammar"
+    echo     
+}
+
+cleanup() {
+    GRAMMAR="${1}"
+    echo "clean up the old files from ${GRAMMAR} directory "
+    CURR_PWD=`pwd`
+    cd grammars/${GRAMMAR}
+    [ -f yygrammar.c ] && rm yygrammar.c && echo " -- removed yygrammar.c"
+    [ -f yygrammar.h ] && rm yygrammar.h && echo " -- removed yygrammar.h"
+    [ -f lex.yy.c ] && rm lex.yy.c && echo " -- removed lex.yy.c"
+    [ -f ${GRAMMAR} ] && rm ${GRAMMAR} && echo " -- removed ${GRAMMAR}"
+    cd ${CURR_PWD}
+}
+
+build() {
+    GRAMMAR="${1}"
+    LEXFILE="${CODESPACE}/ruby/grammars/general.lex"
+    CURR_PWD=`pwd`
+    cd grammars/${GRAMMAR}
+
+    [ ! -f ${GRAMMAR}.spec ] && echo "${GRAMMAR}.spec file does not exist" && exit 1
+    [ ! -f ${LEXFILE} ] && echo "${LEXFILE} file does not exist" && exit 1
+    [ ! -f ${AUXIL} ] && echo "${AUXIL} file does not exist" && exit 1
+    echo ""
+
+    ${ACCENT} ./${GRAMMAR}.spec
+    if [ $? -ne 0 ]
+    then
+	    echo "problem generating the yygrammar files using the ${GRAMMAR}.spec "
+	    exit 1
+    fi
+    echo "yygrammar files generated"
+
+    ${LEX} ${LEXFILE} 
+    if [ $? -ne 0 ]
+    then
+	    echo "problem generating the lex code from ${GRAMMAR}.lex"
+	    exit 1
+    fi
+    echo "lex code generated"
+
+    ${CC} -w -o ${GRAMMAR} yygrammar.c lex.yy.c ${AUXIL} ${ENTIRE} 
+    
+	if [ $? -ne 0 ]
+    then
+	    echo "problem compiling the generated C for ${GRAMMAR}... exiting!"
+	    exit 1
+    fi        
+    
+    cd ${CURR_PWD}
+}
+
+if [ "x${1}" == "x" ]
+then
+    echo "Usage below: "
+    usage ${0}
+    exit 1
+elif [ "${1}" == "test_ambiguity" ]
+then
+        shift
+	grammar="${1}"
+	cleanup ${grammar}
+	build ${grammar}
+	
+	shift
+	if [[ "${1}" != "0" && "${2}" != "0" ]]
+	then
+		./checkambiguity.rb ${grammar} ${1} ${2}
+	else
+		./checkambiguity.rb ${grammar}
+	fi
+else
+	if [ -d grammars/${1} ]
+	then
+		echo "grammar: ${1}"
+		cleanup ${1}
+		build ${1}
+	else
+		echo "${1} directory does not exist. exiting..."
+		exit 1
+	fi
+fi
