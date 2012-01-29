@@ -15,7 +15,11 @@ class Utility
 # 		(puts "** BREAK ** depth=[#{stack_node.depth}] count=[#{count}]";return false) if (stack_node.depth == 4000)
 # 		return true;
 # 	end
-	
+
+        def self.calc_production_touched_factor
+                #
+        end
+        
 	def self.recursion_details(productions)
 		productions_recursive = {}
 		total_prods,recursive_prods=0,0

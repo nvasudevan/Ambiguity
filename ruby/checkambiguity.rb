@@ -28,6 +28,7 @@ class Grammar
 		@inherent_ambiguity = false
 		@ambiguous_rule = ''
                 @w_productions_used_count = {}
+                @global_productions_touched = nil
                 
 		# for GPL's we have a list of tokens that we wish replace with their values in RHS
 		if ( grammar == 'C' || grammar == 'Java' || grammar == 'pascal' || grammar == 'sql' || grammar == 'converge' )
@@ -169,7 +170,7 @@ class Grammar
 		return ambiguous
 	end
 
-	def fitness_function(grammar,new_sentence_nodes,productions_touched_factor,new_productions_touched_factor,k_count,new_k_count,type)
+	def fitness_function(grammar,new_sentence_nodes,productions_touched,new_productions_touched,k_consecutive_touched,new_k_consecutive_touched,type)
                 #puts "inside ff -- #{type}"
 		_fitness = false # indicates whether the new sentence has better fitness
 		if type == "length"
@@ -189,6 +190,8 @@ class Grammar
 				puts "[#{f_new_sentence} < #{f_sentence}] - new sentence is less fit!!"
 			end
 		elsif type == "productions_touched"
+                        productions_touched_factor,k_consecutive_touch_count = calc_production_touched_factor(productions_touched,nil)
+                        new_productions_touched_factor,new_k_consecutive_touch_count = calc_production_touched_factor(new_productions_touched,nil)
 			if (new_productions_touched_factor >= productions_touched_factor)
 				puts "No of productions touched in neighbour [#{new_productions_touched_factor}] >= [#{productions_touched_factor}]"
 				_fitness = true
@@ -198,14 +201,35 @@ class Grammar
                                 puts "[#{new_productions_touched_factor} < #{productions_touched_factor}] - new sentence is less fit!!"
 			end
                 elsif type == "consecutive_touch"
-                        if new_k_count >= k_count
-                                puts "K value in neighbour: [#{new_k_count} >= #{k_count}]"
+                        productions_touched_factor,k_consecutive_touch_count = calc_production_touched_factor(nil,k_consecutive_touched)
+                        new_productions_touched_factor,new_k_consecutive_touch_count = calc_production_touched_factor(nil,new_k_consecutive_touched)                        
+                        if new_k_consecutive_touch_count >= k_consecutive_touch_count
+                                puts "K value in neighbour: [#{new_k_consecutive_touch_count} >= #{k_consecutive_touch_count}]"
                                 _fitness = true
                                 #create the new_sentence
                                 generate_sentence_only(new_sentence_nodes[0],'new_sentence')
                         else
-                                puts "[#{new_k_count} < #{k_count}] - new sentence is less fit!!"
+                                puts "[#{new_k_consecutive_touch_count} < #{k_consecutive_touch_count}] - new sentence is less fit!!"
                         end
+                elsif type == "productions_touched_hc"
+                        # if the productions_touched improves the @global_productions_touched set, then return true
+                        # go over the productions touched for the current sentence and if it touches any of the productions from the global set
+                        # that hasn't been touched before, then fitness is true.
+                        new_productions_touched.keys.each do |lhs|
+                                new_rhs = new_productions_touched[lhs]
+                                global_rhs = @global_productions_touched[lhs]
+                                new_rhs.each_with_index do |val,index|
+                                        if val && (global_rhs[index] == false)
+                                                _fitness = true
+                                                puts "***************"
+                                                puts "new_rhs: #{new_rhs} , global_rhs: #{global_rhs}"
+                                                global_rhs[index] = true
+                                                puts "new_rhs: #{new_rhs} , global_rhs: #{global_rhs}"
+                                                puts "***************"
+                                        end
+                                end
+                        end
+                        (generate_sentence_only(new_sentence_nodes[0],'new_sentence')) if _fitness
 		end
                 #puts "-- ff : #{_fitness}"
 		return _fitness
@@ -221,14 +245,6 @@ class Grammar
 	end
 
         def process_k_logic(child_node,parent_node,k_consecutive_touched)
-                # a simple block for k=1
-#                 if (child_node.lhs == parent_node.lhs)
-#                         if ! k_consecutive_touched.keys.include? child_node.lhs
-#                                 k_consecutive_touched[child_node.lhs] = []
-#                         end
-#                         k_consecutive_touched[child_node.lhs] << [child_node,parent_node]
-#                 end
-                # while loop for k > 1
                 if (child_node.lhs == parent_node.lhs)
                         current_child_node = child_node
                         current_parent_node = parent_node
@@ -236,6 +252,7 @@ class Grammar
                         k_counter = 1
                         k_matched = true
                         current_k_sequence = [current_child_node.rhsIndex,current_parent_node.rhsIndex]
+                        # while loop for k > 1
                         while (k_counter < @k_consecutive_touch) do
                                 current_child_node = current_parent_node
                                 current_parent_node = current_parent_node.parentNode
@@ -263,6 +280,26 @@ class Grammar
                                 end
                         end
                 end
+        end
+
+        def calc_production_touched_factor(productions_touched,k_consecutive_touched)
+                productions_touched_factor,productions_touched_count,k_consecutive_touched_count = 0.0,0,0
+                if productions_touched != nil
+                        productions_touched.keys.each { |lhs|
+                                productions_touched_rhs = productions_touched[lhs]
+                                productions_touched_rhs.each { |a_rhs| productions_touched_count += 1 if a_rhs  }
+                        }
+                        productions_touched_factor = (productions_touched_count * 1.0) / @productions_count
+                end
+                # K part
+                if k_consecutive_touched != nil
+                        k_consecutive_touched.keys.each do |_key|
+                                puts "-- #{_key}:#{k_consecutive_touched[_key].size} --"
+                                #k_consecutive_touched[_key].each { |_val| puts "   :: #{_val}"}
+                                k_consecutive_touched_count += k_consecutive_touched[_key].size
+                        end
+                end
+                return productions_touched_factor,k_consecutive_touched_count
         end
         
 	# generate sentence tree using DFS
@@ -328,7 +365,6 @@ class Grammar
 				active_node_rhs_index = 0
 				found = false
 				active_node.rhs.each do |char|
-
 					if !found
 						if (active_node_rhs_index < stack_node.index)
 							active_node_rhs_index += 1;next
@@ -340,7 +376,6 @@ class Grammar
 						has_NT = true
 						rhs = @productions[char]
 						begin
-							#rhs_index = Utility.weighted_random_production_current_to_total_ratio(@terminal_productions_indices[char],productions_used_count[char],w_productions_used_count[char],sentence_nodes.size * @no_nodes_factor,@cfactor)
 							if @weighted_function == 'ratio'
                                                                 if type == 'FINAL'
                                                                         rhs_index = Utility.weighted_random_production_current_to_total_ratio_2(char,@productions_recursive[char],@terminal_productions_indices[char],productions_used_count[char],w_productions_used_count[char],sentence_nodes.size * @no_nodes_factor,@cfactor)
@@ -395,33 +430,33 @@ class Grammar
 			Process.exit
 		end
                 
-		print_stats(symbol,sentence_nodes,productions_used_count,w_productions_used_count)
-		productions_touched_factor = 0.0
-                k_consecutive_touched_count = 0
+# 		print_stats(symbol,sentence_nodes,productions_used_count,w_productions_used_count)
+# 		productions_touched_factor = 0.0
+#                 k_consecutive_touched_count = 0
                 # return early when generating final ambiguous sentence
-                (return [valid,sentence_nodes,productions_touched_factor,k_consecutive_touched_count]) if (type == 'FINAL')
-		if symbol == 'root'
-			productions_touched_count=0
-			productions_touched.keys.each { |lhs|
-				productions_touched_rhs = productions_touched[lhs]
-				puts "prod used count : lhs: #{lhs}, rhs: #{@productions[lhs]} , #{productions_used_count[lhs]}" if ! valid
-				productions_touched_rhs.each { |a_rhs| productions_touched_count += 1 if a_rhs  }
-			}
-			productions_touched_factor = (productions_touched_count * 1.0) / @productions_count
-                        # we save the w_productions_used_count values so we can use it later for generate_ambiguous_sentence method!
-                        @w_productions_used_count = w_productions_used_count
-
-                        # K part
-                        k_consecutive_touched.keys.each do |_key|
-                                puts "-- #{_key}:#{k_consecutive_touched[_key].size} --"
-                                #k_consecutive_touched[_key].each { |_val| puts "   :: #{_val}"}
-                                k_consecutive_touched_count += k_consecutive_touched[_key].size
-                        end
-		end
+                (return [valid,sentence_nodes,productions_touched,k_consecutive_touched]) if (type == 'FINAL')
+                (@w_productions_used_count = w_productions_used_count) if symbol == 'root'
+# 		if symbol == 'root'
+# # 			productions_touched_count=0
+# # 			productions_touched.keys.each { |lhs|
+# # 				productions_touched_rhs = productions_touched[lhs]
+# # 				puts "prod used count : lhs: #{lhs}, rhs: #{@productions[lhs]} , #{productions_used_count[lhs]}" if ! valid
+# # 				productions_touched_rhs.each { |a_rhs| productions_touched_count += 1 if a_rhs  }
+# # 			}
+# # 			productions_touched_factor = (productions_touched_count * 1.0) / @productions_count
+#                         # we save the w_productions_used_count values so we can use it later for generate_ambiguous_sentence method!
+#                         @w_productions_used_count = w_productions_used_count
+# 
+#                         # K part
+# #                         k_consecutive_touched.keys.each do |_key|
+# #                                 puts "-- #{_key}:#{k_consecutive_touched[_key].size} --"
+# #                                 #k_consecutive_touched[_key].each { |_val| puts "   :: #{_val}"}
+# #                                 k_consecutive_touched_count += k_consecutive_touched[_key].size
+# #                         end
+# 		end
 
 		puts "--- DFS #{Time.now} ---"
-		#valid ? [valid,sentence_nodes,productions_touched_factor] : [valid,nil,nil]
-		return [valid,sentence_nodes,productions_touched_factor,k_consecutive_touched_count]
+		return [valid,sentence_nodes,productions_touched,k_consecutive_touched]
 	end
 
 	def generate_sentence(root_node)
@@ -438,19 +473,9 @@ class Grammar
 		active_nodes_stack.push([root_node,0])
 		sentence_nodes << root_node
 		while ((active_node,index=active_nodes_stack.pop) != nil) do
-			#active_node.rhs[index,active_node.rhs.size].chars.each { |char|
 			active_node.rhs[index,active_node.rhs.size].each do |token|
 				if @productions.has_key?(token)
 					child_node = active_node.childNodes[index]
-                                        # for K part
-#                                         if child_node.lhs == active_node.lhs
-#                                                 # any production for a NT
-#                                                 if ! k_consecutive_touched.keys.include? child_node.lhs
-#                                                         # create a dummy array
-#                                                         k_consecutive_touched[child_node.lhs] = []
-#                                                 end
-#                                                 k_consecutive_touched[child_node.lhs] << [active_node,child_node]
-#                                         end
                                         process_k_logic(child_node,active_node,k_consecutive_touched)
 					#puts "pushing: #{active_node} , index: #{index+1}"
 					active_nodes_stack.push([active_node,index+1]) if (index+1) < active_node.rhs.length
@@ -464,22 +489,7 @@ class Grammar
 				index=index+1
                         end
 		end
-		productions_touched_factor,productions_touched_count = 0.0,0
-		productions_touched.keys.each { |lhs|
-			productions_touched_rhs = productions_touched[lhs]
-			productions_touched_rhs.each { |a_rhs| productions_touched_count += 1 if a_rhs  }
-		}
-		productions_touched_factor = (productions_touched_count * 1.0) / @productions_count
-                # K part
-                k_consecutive_touched_count = 0
-                k_consecutive_touched.keys.each do |_key|
-                        puts "-- #{_key}:#{k_consecutive_touched[_key].size} --"
-                        #k_consecutive_touched[_key].each { |_val| puts "   :: #{_val}"}
-                        k_consecutive_touched_count += k_consecutive_touched[_key].size
-                end
-                puts "consecutive_touch_count: #{k_consecutive_touched_count}"
-		#puts "--- generate_sentence #{Time.now} ---"
-		return sentence_nodes,productions_touched_factor,k_consecutive_touched_count
+		return sentence_nodes,productions_touched,k_consecutive_touched
 	end
 
 	def generate_sentence_only(root_node,sentence_filename)
@@ -614,10 +624,18 @@ class Grammar
 		puts "++ HILLCLIMB:: grammar:#{@grammar} cfactor=#{@cfactor} no_nodes_factor=#{@no_nodes_factor} ++"
 		valid,ambiguous = false,false
 		message,sentence,sentence_nodes,hc_iter_count,productions_touched_factor,sentence_size = "not found",nil,nil,0,0.0,0
-		valid,sentence_nodes,productions_touched_factor,k_consecutive_touched_count = generate_sentence_tree_by_dfs('root')
-		(message = 'failed to generate a valid sentence';return [message,hc_iter_count,productions_touched_factor,sentence_size]) if ! valid
+		valid,sentence_nodes,productions_touched,k_consecutive_touched = generate_sentence_tree_by_dfs('root')
+                @global_productions_touched = Marshal.load(Marshal.dump(productions_touched))
+                # initialise global_productions_touched
+#                 productions_touched.keys.each do |lhs|
+#                         @global_productions_touched[lhs] = {}
+#                         
+#                 end
+                #productions_touched_factor,k_consecutive_touched_count = calc_production_touched_factor(productions_touched,k_consecutive_touched)
+                (message = 'failed to generate a valid sentence';return [message,hc_iter_count,n/a,n/a,n/a]) if ! valid
 		generate_sentence_only(sentence_nodes[0],'sentence')
 		ambiguous = check_amb
+                productions_touched_factor = 0.0
 		while (!ambiguous && !Utility.limit_reached(@grammar,@@starttime)) do
 			#(puts "Exceeded memory limit of 2GB. exiting...";exit) if limit_reached
 			# create a deep copy and work with that copy
@@ -626,15 +644,15 @@ class Grammar
 			sentence_nodes_copy = Marshal.load(Marshal.dump(sentence_nodes))
 			random_node = sentence_nodes_copy[rand(sentence_nodes_copy.size)]
 			random_node_replacement = nil
-			sub_sentence,sub_sentence_nodes = nil,nil
+			sub_sentence,sub_sentence_nodes,sub_productions_touched,sub_k_consecutive_touched = nil,nil,nil,nil
 			valid = false
 			while (!Utility.limit_reached(@grammar,@@starttime)) do
-				valid,sub_sentence_nodes,sub_productions_touched_factor,sub_k_consecutive_touched_count = generate_sentence_tree_by_dfs(random_node.lhs)
+				valid,sub_sentence_nodes,sub_productions_touched,sub_k_consecutive_touched = generate_sentence_tree_by_dfs(random_node.lhs)
 				break if valid
 			end
 			#puts "before next in hillclimb: #{valid}"
 			(next) if ! valid
-			new_sentence,new_sentence_nodes,new_productions_touched_factor,new_k_consecutive_touched_count = nil,nil,nil,0
+			new_sentence,new_sentence_nodes,new_productions_touched,new_k_consecutive_touched = nil,nil,nil,nil
 			if random_node.lhs != 'root'
 				# find the random node's location in its parent node
 				cnt=0
@@ -644,26 +662,30 @@ class Grammar
 				random_node.parentNode.childNodes[cnt] = sub_sentence_nodes[0]
 				sub_sentence_nodes[0].parentNode = random_node.parentNode
 				random_node.parentNode = nil
-				new_sentence_nodes,new_productions_touched_factor,new_k_consecutive_touched_count = generate_sentence(sentence_nodes_copy[0])
+				new_sentence_nodes,new_productions_touched,new_k_consecutive_touched = generate_sentence(sentence_nodes_copy[0])
+                                #new_productions_touched_factor,new_k_consecutive_touched_count = calc_production_touched_factor(new_productions_touched,new_k_consecutive_touched)
 			else
-				new_sentence_nodes,new_productions_touched_factor,new_k_consecutive_touched_count = sub_sentence_nodes,sub_productions_touched_factor,sub_k_consecutive_touched_count
+				new_sentence_nodes = sub_sentence_nodes
+                                new_productions_touched,new_k_consecutive_touched = sub_productions_touched,sub_k_consecutive_touched
+                                #new_productions_touched_factor,new_k_consecutive_touched_count = calc_production_touched_factor(sub_productions_touched,sub_k_consecutive_touched)
 			end
 			puts "+--- sentence nodes size=[#{sentence_nodes.size}] ---+"
 			# create new_sentence file
 			#generate_sentence_only(new_sentence_nodes[0],'new_sentence')
-			fitness = fitness_function(@grammar,new_sentence_nodes,productions_touched_factor,new_productions_touched_factor,k_consecutive_touched_count,new_k_consecutive_touched_count,fitness_type)
+			fitness = fitness_function(@grammar,new_sentence_nodes,productions_touched,new_productions_touched,k_consecutive_touched,new_k_consecutive_touched,fitness_type)
 			if fitness
 				#
 				File.rename("grammars/#{@grammar}/new_sentence","grammars/#{@grammar}/sentence")
 				sentence_nodes = new_sentence_nodes
-				productions_touched_factor = new_productions_touched_factor
-                                k_consecutive_touched_count = new_k_consecutive_touched_count
+				productions_touched = new_productions_touched
+                                k_consecutive_touched = new_k_consecutive_touched
 				puts "checking for ambiguity..."
 				ambiguous = check_amb
 # 			else
 # 				puts "new sentence has less fitness!"
 			end
-			
+			productions_touched_factor,x = calc_production_touched_factor(@global_productions_touched,nil)
+                        puts "*** PROD TOUCHED FACTOR: #{productions_touched_factor} ***"
 		end
 		sentence_size = File.size("grammars/#{@grammar}/sentence") if File.exists? "grammars/#{@grammar}/sentence"
                 puts "sentence size: #{sentence_size}"
@@ -677,7 +699,10 @@ class Grammar
                                 generate_ambiguous_sentence()
                         end
 		end
+                
                 ambiguous_sentence_size = File.size("grammars/#{@grammar}/ambiguous_sentence") if File.exists? "grammars/#{@grammar}/ambiguous_sentence"
+                productions_touched_factor,x = calc_production_touched_factor(@global_productions_touched,nil)
+                @global_productions_touched.keys.each { |lhs| puts "#{lhs} :: #{@global_productions_touched[lhs]}" }
 		return [message,hc_iter_count,productions_touched_factor,sentence_size,ambiguous_sentence_size]
 	end
 
