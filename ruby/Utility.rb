@@ -9,17 +9,6 @@ class Utility
 		return true if (((Time.now - starttime)/60).to_i > HillClimbConfig::MAX_TIME.to_i)
 	end
 
-# 	def terminate_search(stack_node,count)
-# 		#(valid = false;puts "** BREAK ** depth=[#{stack_node.depth}] count=[#{count}]";break) if (stack_node.depth == 4000)
-# 		#(puts "TIME EXCEEDED! (> #{@@max_duration} mins)";return false) if (((Time.now - @@starttime)/60).to_i > @@max_duration)
-# 		(puts "** BREAK ** depth=[#{stack_node.depth}] count=[#{count}]";return false) if (stack_node.depth == 4000)
-# 		return true;
-# 	end
-
-        def self.calc_production_touched_factor
-                #
-        end
-        
 	def self.recursion_details(productions)
 		productions_recursive = {}
 		total_prods,recursive_prods=0,0
@@ -36,12 +25,142 @@ class Utility
 				total_prods += 1
 			}
 			productions_recursive[lhs] = rhs_array_recursive
-			puts "#{lhs} : #{productions_recursive[lhs]}"
+			#puts "#{lhs} : #{productions_recursive[lhs]}"
 		}
-		puts "total_prods: #{total_prods}, recursive_prods: #{recursive_prods}"
+		#puts "[total_prods: #{total_prods}, recursive_prods: #{recursive_prods}]"
 		return productions_recursive
 	end
 
+        # v2 of check_recursive
+        # 1) 
+        def self.route_to_terminals_and_invoked_from(productions)
+                productions_reduced = Marshal.load(Marshal.dump(productions))
+                recursive=false
+                # remove all terminals
+                nt_set = productions_reduced.keys
+                productions_reduced.keys.each { |lhs|
+                        rhs_array = productions_reduced[lhs]
+                        rhs_array.each { |a_rhs|
+                                terminals = []
+                                a_rhs.each { |token|
+                                        (terminals << token) if ! (nt_set.include? token)
+                                }
+                                terminals.each { |term| a_rhs.delete(term)}
+                        }
+                }
+                puts "------------++++++--------------"
+                productions_reduced.keys.each { |_key| puts "#{_key} : #{productions_reduced[_key]}" }
+                puts "----- PRODUCTION COMBINATIONS -------"
+                production_combinations = {}
+                if (productions_reduced.size > 0)
+                        productions_reduced.keys.each do |lhs|
+                                rhs_array = productions_reduced[lhs]
+                                combination_rhs_array = []
+                                rhs_array.each do |a_rhs|
+                                        combination_a_rhs = []
+                                        a_rhs.each do |token|
+                                                rhs_for_token = productions_reduced[token]
+                                                rhs_for_token.size.times do |ind|
+                                                        combination_a_rhs << [token,ind]
+                                                end
+                                        end
+                                        combination_rhs_array << combination_a_rhs
+                                end
+                                production_combinations[lhs] = combination_rhs_array
+                        end
+                end
+                count = 0
+                production_combinations.keys.each do |lhs|
+                        __rhs = production_combinations[lhs]
+                        puts "#{lhs} :: #{__rhs}"
+                        __rhs.each do |a_rhs|
+                                count += a_rhs.size
+                        end
+                end
+                puts "TOTAL COMBINATIONS: #{count}"
+                puts "----- INVOKED FROM -------"
+                # A: 'b' B | 'c'  C --> A: B | | C
+                lhs_route_terminals,lhs_invoked_from = {},{}
+                # build lhs_invoked_from
+                if (productions_reduced.size > 0)
+                        productions_reduced.keys.each do |lhs|
+                                rhs_array = productions_reduced[lhs]
+                                rhs_array.each_with_index do |a_rhs,index|
+                                        a_rhs.each do |token|
+                                                if productions_reduced.keys.include? token
+                                                        if (lhs_invoked_from.keys.include? token)
+                                                                lhs_invoked_from[token] << [lhs,index]
+                                                                #puts "(if)lhs_invoked_from: #{lhs_invoked_from[token]}"
+                                                        else
+                                                                lhs_invoked_from[token] = []
+                                                                lhs_invoked_from[token] << [lhs,index]
+                                                                #puts "(else)lhs_invoked_from: #{lhs_invoked_from[token]}"
+                                                        end
+                                                else
+                                                        # we should never be here. this means after deleting all terminals, there are
+                                                        # tokens that are not NT's
+                                                end                                                
+                                        end
+                                end
+                        end
+                        #lhs_invoked_from.keys.each { |_key| puts "#{_key} : #{lhs_invoked_from[_key]}" }
+                else
+                        puts "Grammar contains only terminals!!"
+                end
+                #puts "------"        
+                productions_reduced.keys.each do |_lhs|
+                        _rhs_array = productions_reduced[_lhs]
+                        a_rhs_terminals_only = []
+                        _rhs_array.each_with_index do |a_rhs,index|
+                                (a_rhs_terminals_only << index) if (a_rhs.size == 0)
+                        end
+                        (lhs_route_terminals[_lhs] = a_rhs_terminals_only) if a_rhs_terminals_only.size > 0
+                end
+                lhs_route_terminals.keys.each { |_lhs| productions_reduced.delete(_lhs) }
+                #productions_reduced.keys.each { |_key| puts "#{_key} : #{productions_reduced[_key]}" }
+                #puts "----"
+                #p lhs_route_terminals
+                if lhs_route_terminals.size == 0
+                        # we should exit ideally as we can't reduce the productions at all.
+                        recursive=true;
+                else
+                        # build lhs_route_terminals
+                        while (productions_reduced.size > 0)
+                                #puts "** while loop **"
+                                to_delete = false
+                                lhs_route_terminals_keys = lhs_route_terminals.keys
+                                productions_reduced.keys.each do |lhs|
+                                        rhs_array = productions_reduced[lhs]
+                                        rhs_array.each_with_index do |a_rhs,index|
+                                                tokens_to_delete = []
+                                                a_rhs.each do |token|
+                                                        tokens_to_delete << token if lhs_route_terminals_keys.include? token
+                                                end
+                                                tokens_to_delete.each do |_token|
+                                                        a_rhs.delete(_token)
+                                                end
+                                        end
+                                end
+                                #productions_reduced.keys.each { |_key| puts "#{_key} : #{productions_reduced[_key]}" }
+                                productions_reduced.keys.each do |lhs|
+                                        rhs_array = productions_reduced[lhs]
+                                        a_rhs_terminals_only = []
+                                        rhs_array.each_with_index do |a_rhs,index|
+                                                (a_rhs_terminals_only << index;to_delete = true) if (a_rhs.size == 0)
+                                        end
+                                        (lhs_route_terminals[lhs] = a_rhs_terminals_only) if a_rhs_terminals_only.size > 0
+                                end
+                                (puts "no production to reduce! exiting...";recursive=true;break) if ! to_delete
+                                lhs_route_terminals.keys.each { |_lhs| productions_reduced.delete(_lhs) }
+                                #productions_reduced.keys.each { |_key| puts "#{_key} : #{productions_reduced[_key]}" }
+                        end
+                        #puts "--- ROUTE TO TERMINALS ---"
+                        #lhs_route_terminals.each { |key| puts "#{key} -- #{lhs_route_terminals[key]}" }
+                        #puts "----"
+                end
+                return recursive,lhs_route_terminals,lhs_invoked_from,production_combinations
+        end
+        
 	def self.check_recursive(productions)
 		productions_reduced = Marshal.load(Marshal.dump(productions))
 		recursive=false
@@ -50,15 +169,9 @@ class Utility
 		productions_reduced.keys.each { |lhs|
 			rhs_array = productions_reduced[lhs]
 			rhs_array.each { |a_rhs|
-				#puts "++a_rhs: #{a_rhs}"
 				terminals = []
-				a_rhs.each { |token|
-					#puts "token: #{token}"
-					(terminals << token) if ! (nt_set.include? token)
-				}
-				#puts "terminals: #{terminals}"
+				a_rhs.each { |token| (terminals << token) if ! (nt_set.include? token) }
 				terminals.each { |term| a_rhs.delete(term)}
-				#puts "-- #{lhs} : #{a_rhs}"
 			}
 		}
 		factor = 1.0
@@ -95,20 +208,18 @@ class Utility
 			productions_reduced.delete(lhs_to_reduce)
 			productions_reduced.keys.each { |lhs|
 				rhs_array = productions_reduced[lhs]
-				rhs_array.each { |a_rhs|
-					a_rhs.delete(lhs_to_reduce)
-				}
+				rhs_array.each { |a_rhs| a_rhs.delete(lhs_to_reduce) }
 			}
 		end
 		(recursive = true;puts "recursive: #{recursive} [#{productions_reduced}]";) if productions_reduced.size > 0
 		return recursive
 	end
 
-        def self.retrieve_parse_tree_info(grammar,token_to_terminals,productions)
-                #
+        def self.retrieve_parse_tree_info(grammar)
+                token_to_terminals,productions = grammar.token_to_terminals,grammar.productions
                 ambiguity_type,ambiguous_non_terminal,line_no,column_no,end_line_no,end_column_no = "","",0,0,0,0
 
-                parse_tree_file = File.open("grammars/#{grammar}/parse_tree.head","r").each do |line|
+                parse_tree_file = File.open("grammars/#{grammar.grammar}/parse_tree.head","r").each do |line|
                         if (line.start_with?("Two different"))
                                 ambiguity_type = "disjunctive"
                                 ambiguous_non_terminal = line.split[2].gsub("`","").gsub("'","")
@@ -139,7 +250,7 @@ class Utility
                 rhsIndex = nil
                 ambiguous_part_in_rule = ""
 
-                grammarfile = File.open("grammars/" + grammar + "/" + grammar + ".spec").each do |line|
+                grammarfile = File.open("grammars/" + grammar.grammar + "/" + grammar.grammar + ".spec").each do |line|
                         line_index += 1
                         puts "[#{line_index}] : #{line}"
                         if (line_index == line_no.to_i)
@@ -196,7 +307,6 @@ class Utility
                         break if rhsIndex != nil
                 end
                 grammarfile.close if grammarfile != nil
-                
                 return ambiguity_type,ambiguous_non_terminal,ambiguous_part_in_rule,rhsIndex 
         end
 
@@ -251,7 +361,6 @@ class Utility
                 return route_to_root_stack
         end
         
-	#def weighted_random_production(productions_used_count,n_count)
 	def self.weighted_random_production(weighted_rhs, current_count=nil, to_terminate=false)
 		_weighted_rhs = weighted_rhs
 		sum_weights = 0
@@ -272,7 +381,8 @@ class Utility
 		}
 	end
 
-        def self.weighted_random_production_prod_count(terminal_productions_indices,productions_used_count,w_productions_used_count,nodes_count_weight,cfactor)
+        def self.weighted_random_production_prod_count(symbol,grammar,productions_used_count,w_productions_used_count,nodes_count_weight,cfactor)
+                terminal_productions_indices = grammar.terminal_productions_indices[symbol]
                 depth_no_nodes = []
                 depth_no_nodes << 1.0
                 #nodes_count_weight = (nodes_count * no_nodes_factor)
@@ -299,28 +409,82 @@ class Utility
                 end
         end
 
-	def self.weighted_random_production_current_to_total_ratio(char,productions_recursive,terminal_productions_indices,productions_used_count,w_productions_used_count,nodes_count_weight,cfactor)
+	def self.weighted_random_production_current_to_total_ratio(active_node,symbol,fitness_type,grammar,production_combinations,productions_touched,productions_used_count,w_productions_used_count,nodes_count_weight,cfactor)
+                productions = grammar.productions
+                productions_recursive = grammar.productions_recursive[symbol]
+                terminal_productions_indices = grammar.terminal_productions_indices[symbol]
 		depth_no_nodes = []
 		depth_no_nodes << 1.0
-		#nodes_count_weight = (nodes_count * @no_nodes_factor)
 		depth_no_nodes << nodes_count_weight
 		_index = weighted_random_production(depth_no_nodes)
 		if _index == 0
-			__cnt = 0
-			weighted_rhs = []
-			productions_used_count.each {|count|
-				weight = cfactor ** count #1.0/(count+1)
-				weighted_rhs << weight
-			}
-			return weighted_random_production(weighted_rhs)
+                        __index = nil
+                        if (fitness_type == 'production_combinations')
+                                #puts "** production_combinations **"
+                                if active_node != nil
+                                        # find the difference between production_combinations and the one in @grammar (contains all the combinations)
+                                        current_rhs = production_combinations[active_node.lhs][active_node.rhsIndex]  # ["B", 0], ["C", 2], ["A", 1]]
+                                        global_rhs = grammar.global_production_combinations[active_node.lhs][active_node.rhsIndex]  # [[B,0]]
+                                        diff_array = current_rhs.sort - global_rhs.sort   # diff [["A", 1], ["C", 2]]
+                                        matched_entries = []
+                                        diff_array.each do |a_diff|
+                                                (matched_entries << a_diff) if a_diff[0] == symbol
+                                        end
+                                        if matched_entries.size > 0
+                                                a_entry = matched_entries[rand(matched_entries.size)]
+                                                __index = a_entry[1]
+#                                                 if active_node.lhs == 'simple_expr'
+#                                                         puts " -- #{active_node.lhs}:#{active_node.rhsIndex} --"
+#                                                         puts "current_rhs: #{current_rhs.sort}"
+#                                                         puts "global_rhs : #{global_rhs.sort}"
+#                                                         puts "diff_array[#{active_node.rhsIndex}]: #{diff_array} *#{__index}*"
+#                                                 end
+                                                return __index
+                                        end
+                                end
+                                # if there is a difference then we know that th
+                                ## given a symbol, we look for 
+                        elsif (fitness_type == 'productions_touched_hc')
+                                # we now change this algorithm
+                                # - we first try to find a unused production. if all have been used, then use weighted_random_production
+                                # - otherwise, pick a random one from the usused list
+                                ##puts " index == 0, #{char}, #{productions_touched[char]}"
+                                _rhs = productions_touched[symbol]
+                                unused_rhs = []
+                                _rhs.each_with_index { |val,ind| (unused_rhs << ind) if val == false }
+                                if unused_rhs.size > 0
+                                        # some rhs parts are still unused
+                                        unused_rhs_val = []
+                                        unused_rhs.size.times { |v| unused_rhs_val << 1.0 }
+                                        __index = unused_rhs[weighted_random_production(unused_rhs_val)]
+                                        #puts "unused_rhs > 0, #{symbol}:#{productions[symbol]}, _rhs: #{_rhs}, unused_rhs: #{unused_rhs}, x1=#{x1}"
+                                        return __index
+                                end
+                        end
+                        ## if we are still nil, then we resort to a random one.
+                        if __index == nil
+                                # all parts have been used,then we resort to our original alogrighm: that is select one of them
+                                #### ORIGINAL ####
+                                #puts "** weighted_random_production **" if ((active_node != nil) && (active_node.lhs == 'simple_expr'))
+                                __cnt = 0
+                                weighted_rhs = []
+                                productions_used_count.each {|count|
+                                        weight = cfactor ** count #1.0/(count+1)
+                                        weighted_rhs << weight
+                                }
+                                return weighted_random_production(weighted_rhs)
+                                ##################
+                        end
 		else
                         # return a random index of a terminal
                         #terminal_indices = @terminal_productions_indices[char]
                         if terminal_productions_indices != nil
+                                #puts "** terminal indices **"
                                 terminal_indices_values = []
                                 terminal_productions_indices.size.times {|value| terminal_indices_values << 1.0 }
                                 return terminal_productions_indices[weighted_random_production(terminal_indices_values)]
 			else
+                                #puts "** terminal indices -- ELSE -- **"
 				ratio_current_to_total = []
 				productions_used_count.each_with_index { |value,index|
 					#hack to add '1' to the current value so that when we have a case like this:
@@ -351,14 +515,14 @@ class Utility
 					min_value_indices.size.times {|value| min_value_indices_values << 1.0 }
 					#puts "min_value_indices_values: #{min_value_indices_values}"
 					min_value_index = min_value_indices[weighted_random_production(min_value_indices_values)]
-					puts "#{char}, #{min_value_index}, ratio_current_to_total: #{ratio_current_to_total}" if ratio_current_to_total.max == 100000
+					puts "#{symbol}, #{min_value_index}, ratio_current_to_total: #{ratio_current_to_total}" if ratio_current_to_total.max == 100000
 					return min_value_index
 				end
 			end
 		end
 	end
 
-        def self.weighted_random_production_current_to_total_ratio_2(char,productions_recursive,terminal_productions_indices,productions_used_count,w_productions_used_count,nodes_count_weight,cfactor)
+        def self.weighted_random_production_current_to_total_ratio_2(symbol,productions_recursive,terminal_productions_indices,productions_used_count,w_productions_used_count,nodes_count_weight,cfactor)
 
                 if terminal_productions_indices != nil
                         terminal_indices_values = []
@@ -395,7 +559,7 @@ class Utility
                                 min_value_indices.size.times {|value| min_value_indices_values << 1.0 }
                                 #puts "min_value_indices_values: #{min_value_indices_values}"
                                 min_value_index = min_value_indices[weighted_random_production(min_value_indices_values)]
-                                puts "#{char}, #{min_value_index}, ratio_current_to_total: #{ratio_current_to_total}" if ratio_current_to_total.max == 100000
+                                puts "#{symbol}, #{min_value_index}, ratio_current_to_total: #{ratio_current_to_total}" if ratio_current_to_total.max == 100000
                                 return min_value_index
                         end
                 end

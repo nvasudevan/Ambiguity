@@ -22,6 +22,7 @@ class HillClimb
 		@no_nodes_factor = no_nodes_factor
                 @w_productions_used_count = {}
                 @global_productions_touched = {}
+                @global_production_combinations = {}
 		if ( (1.0 * @grammar.terminal_productions_count)/@grammar.productions_count < 0.1)
 			@no_nodes_factor /= 0.1
 		end
@@ -30,6 +31,12 @@ class HillClimb
                         __rhs_false_values = []
                         __rhs.each { |_a_rhs| __rhs_false_values << false }
                         @global_productions_touched[lhs] = __rhs_false_values
+                end
+                @grammar.productions.keys.each do |lhs|
+                        __rhs = @grammar.productions[lhs]
+                        __rhs_values = []
+                        __rhs.each { |_a_rhs| __rhs_values << [] }
+                        @global_production_combinations[lhs] = __rhs_values
                 end
 	end
 
@@ -60,7 +67,7 @@ class HillClimb
 		return ambiguous
 	end
 
-	def fitness_function(new_sentence_nodes,productions_touched,new_productions_touched,k_consecutive_touched,new_k_consecutive_touched,type)
+	def fitness_function(new_sentence_nodes,productions_touched,new_productions_touched,k_consecutive_touched,new_k_consecutive_touched,new_production_combinations,type)
                 #puts "inside ff -- #{type}"
 		_fitness = false # indicates whether the new sentence has better fitness
 		if type == "length"
@@ -139,6 +146,64 @@ class HillClimb
                                         puts "*** LESS FIT ***"
                                 end
                         end
+                elsif type == 'production_combinations'
+                        puts "-- in fitness function --"
+                        ### TESTING ### TO BE REMOVED LATER ###
+                        new_productions_touched.keys.each do |lhs|
+                                new_rhs = new_productions_touched[lhs]
+                                global_rhs = @global_productions_touched[lhs]
+                                #puts "++ [#{lhs} :: #{@productions[lhs]}] ++"
+                                #puts "   [global_rhs: #{global_rhs}]"
+                                #puts "   [new_rhs   : #{new_rhs}]"
+                                new_rhs.each_with_index do |val,index|
+                                        if val && (global_rhs[index] == false)
+                                                #_fitness = true
+                                                #puts "new_rhs:[val: #{val}, index: #{index}]***"
+                                                global_rhs[index] = true
+                                                #puts "new_rhs: #{new_rhs} , global_rhs: #{global_rhs}"
+                                                #puts "***************"
+                                        end
+                                end
+                                #puts "-- global_rhs: #{global_rhs} --"
+                        end
+                        ### TESTING ### TO BE REMOVED LATER ###
+                        new_production_combinations.keys.each do |lhs|
+                                new_rhs = new_production_combinations[lhs]
+                                global_rhs = @global_production_combinations[lhs]
+                                new_rhs.each_with_index do |a_rhs,index|
+                                        #puts "--- #{lhs} : #{@grammar.productions[lhs]} --- "
+                                        #puts "a_rhs[#{a_rhs.size}]: #{a_rhs.sort}"
+                                        #puts "global_rhs[#{global_rhs[index].size}]: #{global_rhs[index].sort}"
+                                        if (a_rhs.size > 0)
+                                                if (global_rhs.size > 0)
+                                                        diff = a_rhs.sort - global_rhs[index].sort
+                                                        if diff.size > 0
+                                                                # we have new ones
+                                                                _fitness = true
+                                                                puts "-- diff: #{diff} --"
+                                                                #puts "#{lhs}: #{@grammar.productions[lhs]}"
+                                                                # add the difference to the global ones
+                                                                diff.each { |new_comb| global_rhs[index] << new_comb }
+                                                        end
+                                                else
+                                                    _fitness = true
+                                                    #puts "#{lhs}: #{@grammar.productions[lhs]} -- #{a_rhs}"
+                                                    a_rhs.each { |new_comb| global_rhs[index] << new_comb }
+                                                end
+                                        end
+                                end
+                        end
+                        count = 0
+                        @global_production_combinations.keys.each do |lhs|
+                                __rhs = @global_production_combinations[lhs]
+                                __rhs.each do |a_rhs|
+                                        count += a_rhs.size
+                                end
+                        end
+                        puts "FITNESS: #{_fitness} -- #{count}"
+                        if _fitness
+                                generate_sentence_only(new_sentence_nodes[0],'new_sentence')
+                        end
 		end
                 #puts "-- ff : #{_fitness}"
 		return _fitness
@@ -191,8 +256,9 @@ class HillClimb
                 end
         end
 
-        def calc_production_touched_factor(productions_touched,k_consecutive_touched)
+        def calc_production_touched_factor(productions_touched,k_consecutive_touched,production_combinations)
                 productions_touched_factor,productions_touched_count,k_consecutive_touched_count = 0.0,0,0
+                combination_count = 0
                 if productions_touched != nil
                         productions_touched.keys.each { |lhs|
                                 productions_touched_rhs = productions_touched[lhs]
@@ -208,26 +274,34 @@ class HillClimb
                                 k_consecutive_touched_count += k_consecutive_touched[_key].size
                         end
                 end
-                return productions_touched_factor,k_consecutive_touched_count
+                if production_combinations != nil
+                        production_combinations.keys.each do |lhs|
+                                __rhs = production_combinations[lhs]
+                                __rhs.each do |a_rhs|
+                                        combination_count += a_rhs.size
+                                end
+                        end
+                end
+                return productions_touched_factor,k_consecutive_touched_count,combination_count
         end
 
-        def get_a_rhs_index(symbol,type,productions_touched,productions_used_count,w_productions_used_count,nodes_count_weight)
+        def get_a_rhs_index(active_node,symbol,type,production_combinations,productions_touched,productions_used_count,w_productions_used_count,nodes_count_weight)
                 rhs_index = nil
-                if @weighted_function == 'ratio'
-                        if type == 'FINAL'
-                                #rhs_index = Utility.weighted_random_production_current_to_total_ratio_2(symbol,@productions_recursive[symbol],@terminal_productions_indices[symbol],productions_used_count[symbol],w_productions_used_count[symbol],0.0,@cfactor)
-                                lhs_route_terminals_indices = @grammar.lhs_route_terminals[symbol]
-                                puts "#{symbol} -- lhs_route_terminals_indices: #{lhs_route_terminals_indices}"
-                                lhs_route_terminals_indices_values = []
-                                @grammar.lhs_route_terminals[symbol].size.times {|value| lhs_route_terminals_indices_values << 1.0 }
-                                rhs_index = lhs_route_terminals_indices[Utility.weighted_random_production(lhs_route_terminals_indices_values)]
-                                puts "rhs_index: #{rhs_index}"
-                        else
-                                rhs_index = Utility.weighted_random_production_current_to_total_ratio(symbol,@grammar,productions_touched,productions_used_count[symbol],w_productions_used_count[symbol],nodes_count_weight,@cfactor)
+                if type == 'FINAL'
+                        lhs_route_terminals_indices = @grammar.lhs_route_terminals[symbol]
+                        puts "#{symbol} -- lhs_route_terminals_indices: #{lhs_route_terminals_indices}"
+                        lhs_route_terminals_indices_values = []
+                        @grammar.lhs_route_terminals[symbol].size.times {|value| lhs_route_terminals_indices_values << 1.0 }
+                        rhs_index = lhs_route_terminals_indices[Utility.weighted_random_production(lhs_route_terminals_indices_values)]
+                        puts "rhs_index: #{rhs_index}"
+                else
+                        if @weighted_function == 'ratio'
+                                ### TRY THIS: use global_productions_touched instead of the current productions_touched
+                                ### you would need to modify the global_productions_touched as you go along, otherwise, you will reach BREAK=4000
+                                rhs_index = Utility.weighted_random_production_current_to_total_ratio(active_node,symbol,@fitness_type,@grammar,production_combinations,productions_touched,productions_used_count[symbol],w_productions_used_count[symbol],nodes_count_weight,@cfactor)
+                        elsif @weighted_function == 'prod_count'
+                                rhs_index = Utility.weighted_random_production_prod_count(symbol,@grammar,productions_used_count[symbol],w_productions_used_count[symbol],0.0,@cfactor)
                         end
-
-                elsif @weighted_function == 'prod_count'
-                        rhs_index = Utility.weighted_random_production_prod_count(symbol,@grammar,productions_used_count[symbol],w_productions_used_count[symbol],0.0,@cfactor)
                 end
                 return rhs_index
         end
@@ -238,26 +312,31 @@ class HillClimb
 		sentence = ''
 		active_nodes_stack,sentence_nodes,sentence_nodes_table = [],[],{}
 		productions_touched,productions_used_count,w_productions_used_count = {},{},{}
+                production_combinations = {}
                 # for k = 1
                 k_consecutive_touched = {} # [lhs]=>[[node1,node3],[node2,node7]]
 		# initialise weights and productions_touched
-		@grammar.productions.keys.each { |lhs|
+		@grammar.productions.keys.each do |lhs|
 			rhs = @grammar.productions[lhs]
 			###productions_touched_rhs = [] if symbol == 'root'
 			productions_used_count_rhs,w_productions_used_count_rhs = [],[]
-			rhs.each {|a_rhs|
+                        production_combinations_a_rhs = []
+			rhs.each do |a_rhs|
 				###productions_touched_rhs << false if symbol == 'root'
 				productions_used_count_rhs << 0
 				w_productions_used_count_rhs << 0
-			}
+                                production_combinations_a_rhs << []
+                        end
 			###productions_touched[lhs] = productions_touched_rhs ### if symbol == 'root'
                         sentence_nodes_table[lhs] = [] if symbol == 'root'
 			productions_used_count[lhs] = productions_used_count_rhs
 			w_productions_used_count[lhs] = w_productions_used_count_rhs
-		}
+                        production_combinations[lhs] = production_combinations_a_rhs
+                end
                 # initialising productions_touched
-                if (@fitness_type == 'productions_touched_hc')
+                if ((@fitness_type == 'productions_touched_hc') || (@fitness_type == 'production_combinations'))
                         productions_touched = Marshal.load(Marshal.dump(@global_productions_touched))
+                        production_combinations = Marshal.load(Marshal.dump(@global_production_combinations))
                 else
                         if symbol == 'root'
                                 @grammar.productions.keys.each do |lhs|
@@ -273,7 +352,8 @@ class HillClimb
                 # a hack - for generating the final ambiguous sentence
                 #(w_productions_used_count = @w_productions_used_count;puts "** FINAL ** : #{w_productions_used_count[symbol]}") if (type == 'FINAL')
 		rhs = @grammar.productions[symbol]
-                rhs_index = get_a_rhs_index(symbol,type,productions_touched,productions_used_count,w_productions_used_count,0.0)
+                #### WE SHOULDNT PASS NIL for active_node ####
+                rhs_index = get_a_rhs_index(nil,symbol,type,production_combinations,productions_touched,productions_used_count,w_productions_used_count,0.0)
 		rhs_selected = rhs[rhs_index]
 		node = Node.new(symbol,rhs_selected,rhs_index)
 		sentence_nodes << node
@@ -296,7 +376,8 @@ class HillClimb
                                 if (stack_node.depth == HillClimbConfig::MAX_DEPTH)
                                         puts "** BREAK ** #{HillClimbConfig::MAX_DEPTH} reached"
                                         print_stats(symbol,sentence_nodes,productions_used_count,w_productions_used_count)
-                                        return false
+                                        exit
+                                        valid = false; break
                                 end
 				(productions_used_count[active_node.lhs][active_node.rhsIndex] -= 1;next) if stack_node.index == active_node.rhs.length
 				if ((count > 0) && (count % 500000 == 0))
@@ -317,7 +398,7 @@ class HillClimb
 						has_NT = true
 						rhs = @grammar.productions[char]
 						begin
-                                                        rhs_index = get_a_rhs_index(char,type,productions_touched,productions_used_count,w_productions_used_count,sentence_nodes.size * @no_nodes_factor)
+                                                        rhs_index = get_a_rhs_index(active_node,char,type,production_combinations,productions_touched,productions_used_count,w_productions_used_count,sentence_nodes.size * @no_nodes_factor)
 							rhs_selected = rhs[rhs_index]
 							#puts "lhs:rhs - #{char} : #{rhs_selected}"
 							child_node = Node.new(char,rhs_selected,rhs_index)
@@ -328,11 +409,23 @@ class HillClimb
 							active_nodes_stack.push(StackNode.new(child_node,0,stack_node.depth+1))
 							sentence_nodes << child_node
                                                         sentence_nodes_table[child_node.lhs] << child_node if symbol == 'root'
-							productions_touched[child_node.lhs][rhs_index] = true # if symbol == 'root'
+							productions_touched[child_node.lhs][rhs_index] = true
 							productions_used_count[char][rhs_index] += 1
 							w_productions_used_count[char][rhs_index] += 1
                                                         # for k = 1
                                                         process_k_logic(child_node,active_node,k_consecutive_touched)
+                                                        # for fitness - production_combinations
+                                                        # whenever we create a node<->node link, we populate production_combinations
+                                                        # parent -> child [invoked]
+                                                        xx_1 = production_combinations[active_node.lhs][active_node.rhsIndex]
+                                                        (xx_1 << [child_node.lhs,child_node.rhsIndex]) if ! xx_1.include? [child_node.lhs,child_node.rhsIndex]
+#                                                         if active_node.lhs == 'simple_expr'
+#                                                                 puts "++ #{active_node.lhs} : #{active_node.rhsIndex} :: #{production_combinations[active_node.lhs][active_node.rhsIndex]} ++"
+#                                                         end
+                                                        ##### WE DONT NEED TO DO THIS #####
+                                                        # child -> parent [invoked from]
+                                                        #yy_1 = production_combinations[child_node.lhs][child_node.rhsIndex]
+                                                        #(yy_1 << [active_node.lhs,active_node.rhsIndex]) if ! yy_1.include? [active_node.lhs,active_node.rhsIndex]
                                                 rescue Exception => ex
 							puts "\n\n--- Exception inside ---"
 							puts "Exception: #{ex.message}"
@@ -367,7 +460,7 @@ class HillClimb
                 (return [valid,sentence_nodes,productions_touched,k_consecutive_touched]) if (type == 'FINAL')
                 (@w_productions_used_count = w_productions_used_count) if symbol == 'root'
 		puts "--- DFS #{Time.now} ---"
-		return [valid,sentence_nodes,sentence_nodes_table,productions_touched,k_consecutive_touched]
+		return [valid,sentence_nodes,sentence_nodes_table,productions_touched,k_consecutive_touched,production_combinations]
 	end
 
         def generate_sentence_nodes(root_node)
@@ -390,17 +483,23 @@ class HillClimb
         end
         
 	def generate_sentence(root_node)
-		#puts "+++ generate_sentence #{Time.now} +++"
+		puts "+++ generate_sentence #{Time.now} +++"
 		sentence_nodes,active_nodes_stack,sentence_nodes_table = [],[],{}
 		productions_touched,k_consecutive_touched = {},{} # k_consecutive_touched -- NT -> ??
+                production_combinations = {}
 		# initialise productions_touched
-		@grammar.productions.keys.each { |lhs|
+		@grammar.productions.keys.each do |lhs|
 			rhs = @grammar.productions[lhs]
 			productions_touched_rhs = []
-			rhs.each {|a_rhs| productions_touched_rhs << false }
+                        production_combinations_a_rhs = []
+			rhs.each do |a_rhs|
+                                productions_touched_rhs << false
+                                production_combinations_a_rhs << []
+                        end
 			productions_touched[lhs] = productions_touched_rhs
                         sentence_nodes_table[lhs] = []
-		}
+                        production_combinations[lhs] = production_combinations_a_rhs
+                end
 		active_nodes_stack.push([root_node,0])
 		sentence_nodes << root_node
                 sentence_nodes_table[root_node.lhs] << root_node
@@ -420,13 +519,21 @@ class HillClimb
 					productions_touched[child_node.lhs][child_node.rhsIndex] = true
                                         #puts "** true ** : #{child_node.lhs}: #{child_node.rhsIndex} : #{@productions[child_node.lhs]}"
 					#puts "-- prod touched: #{productions_touched.to_a}"
+                                        # for fitness - production_combinations
+                                        # whenever we create a node<->node link, we populate production_combinations
+                                        # parent -> child [invoked]
+                                        xx_1 = production_combinations[active_node.lhs][active_node.rhsIndex]
+                                        (xx_1 << [child_node.lhs,child_node.rhsIndex]) if ! xx_1.include? [child_node.lhs,child_node.rhsIndex]
+                                        # child -> parent [invoked from]
+                                        #yy_1 = production_combinations[child_node.lhs][child_node.rhsIndex]
+                                        #(yy_1 << [active_node.lhs,active_node.rhsIndex]) if ! yy_1.include? [active_node.lhs,active_node.rhsIndex]
 					break
 				end
 				index=index+1
                         end
 		end
                 #productions_touched.keys.each { |lhs| puts "#{lhs} : #{@grammar.productions[lhs]} : #{productions_touched[lhs]}" }
-		return sentence_nodes,sentence_nodes_table,productions_touched,k_consecutive_touched
+		return sentence_nodes,sentence_nodes_table,productions_touched,k_consecutive_touched,production_combinations
 	end
 
 	def generate_sentence_only(root_node,sentence_filename)
@@ -564,14 +671,58 @@ class HillClimb
                 if (@search_mode == 'simple')
                         random_node = sentence_nodes[rand(sentence_nodes.size)]
                 elsif (@search_mode == 'complex')
-                        @global_productions_touched.keys.each do |lhs|
-                                _rhs = @global_productions_touched[lhs]
-                                # we should only use those LHS that are invoked in the grammar (e.g: amb3:H is not invoked at all)
-                                (unused_lhs << lhs) if ((_rhs.include? false) && (@grammar.lhs_invoked_from.keys.include? lhs))
+                        ## split the logic for the two fitness functions
+                        # production_combinations - should use @global_production_combinations (LHS that still has untouched combinations)
+                        # productions_touched_hc - should use @global_productions_touched (LHS that still has unused RHS)
+                        if @fitness_type == 'productions_touched_hc'
+                                @global_productions_touched.keys.each do |lhs|
+                                        _rhs = @global_productions_touched[lhs]
+                                        # we should only use those LHS that are invoked in the grammar (e.g: amb3:H is not invoked at all)
+                                        (unused_lhs << lhs) if ((_rhs.include? false) && (@grammar.lhs_invoked_from.keys.include? lhs))
+                                end
+                        elsif @fitness_type == 'production_combinations'
+                                # compile a list of LHS that have untouched productions (diff between @global_production_combinations
+                                # and @grammar.global_production_combinations)
+                                diff_combinations = {}
+                                __count = 0
+                                list_of_keys = @grammar.global_production_combinations.keys
+                                list_of_keys.each do |lhs|
+                                        is_diff_rhs = false
+                                        global_rhs_array = @grammar.global_production_combinations[lhs]
+                                        diff_rhs_array = []
+                                        global_rhs_array.each_with_index do |global_rhs,index|
+                                                current_rhs = @global_production_combinations[lhs][index]
+                                                diff_rhs = global_rhs.sort - current_rhs.sort
+                                                __count += diff_rhs.size
+                                                (is_diff_rhs = true) if diff_rhs.size > 0
+                                                diff_rhs_array << diff_rhs
+                                        end
+                                        # indicating that there is at least one rhs for which we have a difference
+                                        (diff_combinations[lhs] = diff_rhs_array) if is_diff_rhs 
+                                end
+                                unused_lhs = diff_combinations.keys
+                                puts "-- difference in combinations[#{__count}] --"
+                                diff_combinations.keys.each do |lhs|
+                                        puts "#{lhs} :: #{diff_combinations[lhs]}"
+                                end
+                                puts "--------------"
                         end
                         if (unused_lhs.size == 0)
                                 puts "unused_lhs is ZERO; picking a random node ..."
-                                random_node = sentence_nodes[rand(sentence_nodes.size)]
+                                sentence_nodes_table_keys = sentence_nodes_table.keys
+                                #puts "sentence_nodes_table_keys: #{sentence_nodes_table_keys}"
+                                # we only want to select those LHS from sentence_nodes_table that have RHS.
+                                lhs_with_rhs_in_sentence_nodes_table = []
+                                sentence_nodes_table_keys.each do |_lhs|
+                                        __rhs = sentence_nodes_table[_lhs]
+                                        (lhs_with_rhs_in_sentence_nodes_table << _lhs) if __rhs.size > 0
+                                end
+                                puts "lhs_with_rhs_in_sentence_nodes_table: #{lhs_with_rhs_in_sentence_nodes_table}"
+                                _random_lhs = lhs_with_rhs_in_sentence_nodes_table[rand(lhs_with_rhs_in_sentence_nodes_table.size)]
+                                puts "_random_lhs: #{_random_lhs}"
+                                _rhs_in_sentence_nodes_table = sentence_nodes_table[_random_lhs]
+                                random_node = _rhs_in_sentence_nodes_table[rand(_rhs_in_sentence_nodes_table.size)]
+                                puts "random_node: #{random_node}"
                                 ## or pick a random lhs and then pick a random node
                         else
                                 _found_lhs_in_table = false
@@ -593,11 +744,28 @@ class HillClimb
                                                 while (! _found_lhs_in_table) do
                                                         puts "current_lhs: #{current_lhs}"
                                                         current_lhs_invoked_from_options = @grammar.lhs_invoked_from[current_lhs] # [[A,0],[B,1]]
+                                                        valid_lhss = []
+                                                        invoked_from_root_only = true
                                                         current_lhs_invoked_from_options.each do |a_option|
+                                                                (valid_lhss << a_option[0]) if @grammar.lhs_invoked_from.keys.include? a_option[0]
+                                                                (invoked_from_root_only = false) if a_option[0] != 'root'
+                                                        end
+                                                        #puts "valid_lhss: #{valid_lhss}"
+                                                        #puts "[invoked_from_root_only:#{invoked_from_root_only}] -- valid_lhss is EMPTY!!"
+                                                        # if a LHS in invoked only from root (such as J in amb2), then valid_lhss will be empty
+                                                        if ((valid_lhss.size == 0)  && invoked_from_root_only)
+                                                                puts "setting LHS to ** root **"
+                                                                _rhs_in_sentence_nodes_table = sentence_nodes_table['root']
+                                                                random_node = _rhs_in_sentence_nodes_table[rand(_rhs_in_sentence_nodes_table.size)]
+                                                                puts "random_node: #{random_node}"
+                                                                _found_lhs_in_table = true
+                                                                break
+                                                        end
+                                                        valid_lhss.each do |a_option|
                                                                 #
-                                                                a_option_lhs = a_option[0]
+                                                                a_option_lhs = a_option
                                                                 _rhs_in_sentence_nodes_table = sentence_nodes_table[a_option_lhs]
-                                                                puts "a_option_lhs: #{a_option_lhs} :: size: #{_rhs_in_sentence_nodes_table.size}"
+                                                                #puts "a_option_lhs: #{a_option_lhs} :: size: #{_rhs_in_sentence_nodes_table.size}"
                                                                 if (_rhs_in_sentence_nodes_table.size > 0)
                                                                         random_node = _rhs_in_sentence_nodes_table[rand(_rhs_in_sentence_nodes_table.size)]
                                                                          _found_lhs_in_table = true
@@ -607,13 +775,14 @@ class HillClimb
                                                         puts "--- #{current_lhs}: #{_found_lhs_in_table} ---"
                                                         # if we still havent found a randome node, we go up the invoked_from list
                                                         if ! _found_lhs_in_table
-                                                                current_lhs = current_lhs_invoked_from_options[rand(current_lhs_invoked_from_options.size)][0]
+                                                                current_lhs = valid_lhss[rand(valid_lhss.size)]
                                                                 puts "GOING UP to : #{current_lhs}"
                                                         end
                                                         (reached_root = true;break) if current_lhs == 'root'
                                                 end
                                         end
                                         break if reached_root
+                                        puts "-------------------------**------------------"
                                 end
                         end
                 end
@@ -625,12 +794,13 @@ class HillClimb
 		puts "++ HILLCLIMB:: grammar:#{@grammar.grammar} cfactor=#{@cfactor} no_nodes_factor=#{@no_nodes_factor} ++"
 		valid,ambiguous = false,false
 		message,sentence,sentence_nodes,hc_iter_count,productions_touched_factor,sentence_size = "not found",nil,nil,0,0.0,0
-		valid,sentence_nodes,sentence_nodes_table,productions_touched,k_consecutive_touched = generate_sentence_tree_by_dfs('root')
+		valid,sentence_nodes,sentence_nodes_table,productions_touched,k_consecutive_touched,production_combinations = generate_sentence_tree_by_dfs('root')
                 @global_productions_touched = productions_touched
 #                 @grammar.productions.keys.each do |lhs|
 #                         puts "&&&& #{lhs} : #{@grammar.productions[lhs]} : #{@global_productions_touched[lhs]} &&&&"
 #                 end
-                puts "PROD TOUCHED NOW: #{calc_production_touched_factor(@global_productions_touched,nil)[0]}"
+                prod_touched_f,k_cnt,combi_cnt = calc_production_touched_factor(@global_productions_touched,nil,production_combinations)
+                puts "*** PROD TOUCHED /F=[#{prod_touched_f}],COMBINATIONS=[#{combi_cnt}] ***"
                 (message = 'failed to generate a valid sentence';return [message,hc_iter_count,n/a,n/a,n/a]) if ! valid
 		generate_sentence_only(sentence_nodes[0],'sentence')
 		ambiguous = check_amb
@@ -643,15 +813,15 @@ class HillClimb
                         sentence_nodes = generate_sentence_nodes(sentence_nodes_table_copy['root'][0])
 			random_node = get_a_random_node(sentence_nodes,sentence_nodes_table_copy)
 			random_node_replacement = nil
-			sub_sentence,sub_sentence_nodes,sub_productions_touched,sub_k_consecutive_touched = nil,nil,nil,nil
+			sub_sentence,sub_sentence_nodes,sub_productions_touched,sub_k_consecutive_touched,sub_production_combinations = nil,nil,nil,nil,nil
 			valid = false
 			while (!Utility.limit_reached(@grammar,@@starttime)) do
-				valid,sub_sentence_nodes,sub_sentence_nodes_table,sub_productions_touched,sub_k_consecutive_touched = generate_sentence_tree_by_dfs(random_node.lhs)
+				valid,sub_sentence_nodes,sub_sentence_nodes_table,sub_productions_touched,sub_k_consecutive_touched,sub_production_combinations = generate_sentence_tree_by_dfs(random_node.lhs)
 				break if valid
 			end
 			#puts "before next in hillclimb: #{valid}"
 			(next) if ! valid
-			new_sentence,new_sentence_nodes,new_sentence_nodes_table,new_productions_touched,new_k_consecutive_touched = nil,nil,nil,nil
+			new_sentence,new_sentence_nodes,new_sentence_nodes_table,new_productions_touched,new_k_consecutive_touched,new_production_combinations = nil,nil,nil,nil,nil
 			if random_node.lhs != 'root'
 				# find the random node's location in its parent node
 				cnt=0
@@ -660,21 +830,21 @@ class HillClimb
 					break if node.eql? random_node
                                         cnt = cnt + 1
                                 end
+                                puts "cnt: #{cnt}"
 				random_node.parentNode.childNodes[cnt] = sub_sentence_nodes[0]
 				sub_sentence_nodes[0].parentNode = random_node.parentNode
 				random_node.parentNode = nil
-				new_sentence_nodes,new_sentence_nodes_table,new_productions_touched,new_k_consecutive_touched = generate_sentence(sentence_nodes_table_copy['root'][0])
-                                #new_productions_touched_factor,new_k_consecutive_touched_count = calc_production_touched_factor(new_productions_touched,new_k_consecutive_touched)
+				new_sentence_nodes,new_sentence_nodes_table,new_productions_touched,new_k_consecutive_touched,new_production_combinations = generate_sentence(sentence_nodes_table_copy['root'][0])
 			else
 				new_sentence_nodes = sub_sentence_nodes
                                 new_sentence_nodes_table = sub_sentence_nodes_table
                                 new_productions_touched,new_k_consecutive_touched = sub_productions_touched,sub_k_consecutive_touched
-                                #new_productions_touched_factor,new_k_consecutive_touched_count = calc_production_touched_factor(sub_productions_touched,sub_k_consecutive_touched)
+                                new_production_combinations  = sub_production_combinations
 			end
 			puts "+--- sentence nodes size=[#{sentence_nodes.size}] ---+"
 			# create new_sentence file
 			#generate_sentence_only(new_sentence_nodes[0],'new_sentence')
-			fitness = fitness_function(new_sentence_nodes,productions_touched,new_productions_touched,k_consecutive_touched,new_k_consecutive_touched,@fitness_type)
+			fitness = fitness_function(new_sentence_nodes,productions_touched,new_productions_touched,k_consecutive_touched,new_k_consecutive_touched,new_production_combinations,@fitness_type)
 			if fitness
 				#
 				File.rename("grammars/#{@grammar.grammar}/new_sentence","grammars/#{@grammar.grammar}/sentence")
@@ -682,13 +852,14 @@ class HillClimb
                                 sentence_nodes_table = new_sentence_nodes_table
 				productions_touched = new_productions_touched
                                 k_consecutive_touched = new_k_consecutive_touched
+                                production_combinations = new_production_combinations
 				puts "checking for ambiguity..."
 				ambiguous = check_amb
 # 			else
 # 				puts "new sentence has less fitness!"
 			end
-			productions_touched_factor,x = calc_production_touched_factor(@global_productions_touched,nil)
-                        puts "*** PROD TOUCHED FACTOR: #{productions_touched_factor} ***"
+			prod_touched_f,k_cnt,combi_cnt = calc_production_touched_factor(@global_productions_touched,nil,production_combinations)
+                        puts "*** PROD TOUCHED /F=[#{prod_touched_f}],COMBINATIONS=[#{combi_cnt}] ***"
 		end
 		sentence_size = File.size("grammars/#{@grammar.grammar}/sentence") if File.exists? "grammars/#{@grammar.grammar}/sentence"
                 puts "sentence size: #{sentence_size}"
@@ -708,9 +879,10 @@ class HillClimb
                 if File.exists? "grammars/#{@grammar.grammar}/ambiguous_sentence"
                         ambiguous_sentence_size = File.size("grammars/#{@grammar.grammar}/ambiguous_sentence")
                 end
-                productions_touched_factor,x = calc_production_touched_factor(@global_productions_touched,nil)
+                #productions_touched_factor,x = calc_production_touched_factor(@global_productions_touched,nil)
+                prod_touched_f,k_cnt,combi_cnt = calc_production_touched_factor(@global_productions_touched,nil,@global_production_combinations)
                 @global_productions_touched.keys.each { |lhs| puts "#{lhs} :: #{@global_productions_touched[lhs]}" }
-		return [message,hc_iter_count,productions_touched_factor,sentence_size,ambiguous_sentence_size]
+		return [message,hc_iter_count,prod_touched_f,combi_cnt,sentence_size,ambiguous_sentence_size]
 	end
 
 end
