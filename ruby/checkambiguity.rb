@@ -18,6 +18,7 @@ fitness_type = HillClimbConfig::FITNESS_TYPE # "productions_touched"
 terminate_by = HillClimbConfig::TERMINATE_BY
 k_consecutive_touch = HillClimbConfig::K_CONSECUTIVE_TOUCH
 search_mode = HillClimbConfig::SEARCH_MODE
+@@debug = HillClimbConfig::DEBUG
 ########## CONFIG ###########
 
 @@starttime = Time.now
@@ -34,6 +35,7 @@ File.delete("grammars/#{grammar_file}/sub_sentence_details") if File.exists?("gr
 
 grammar = Grammar.new(grammar_file)
 grammar.print_grammar_details()
+puts "------------**--------------- "
 hillClimb = HillClimb.new(grammar,cfactor,no_nodes_factor,weighted_function,k_consecutive_touch,search_mode,fitness_type)
 hillClimb.print_hc_details
 if grammar.inherent_ambiguity
@@ -58,4 +60,4 @@ else
 end
 
 puts "header:: grammar,message,time taken,productions touched factor,combinations_count,iteration count,sentence size,ambiguous sentence size,sub sentence size,parse1 -rules used,parse2"
-puts "message:: #{grammar_file},#{message},#{(Time.now - @@starttime).round(4)},#{(productions_touched_factor).round(4)},#{combi_cnt},#{hc_iter_count},#{sentence_size},#{ambiguous_sentence_size},#{sub_sentence_details}"
+puts "message:: #{grammar_file},#{message},#{(Time.now - @@starttime).round(4)},#{(productions_touched_factor).round(4)},#{combi_cnt}[#{grammar.global_production_combinations_count}],#{hc_iter_count},#{sentence_size},#{ambiguous_sentence_size},#{sub_sentence_details}"

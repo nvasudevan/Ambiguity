@@ -9,6 +9,46 @@ class Utility
 		return true if (((Time.now - starttime)/60).to_i > HillClimbConfig::MAX_TIME.to_i)
 	end
 
+        def self.calc_production_touched_factor(grammar,productions_touched,k_consecutive_touched,production_combinations)
+                productions_touched_factor,productions_touched_count,k_consecutive_touched_count = 0.0,0,0
+                combination_count = 0
+                if productions_touched != nil
+                        productions_touched.keys.each { |lhs|
+                                productions_touched_rhs = productions_touched[lhs]
+                                productions_touched_rhs.each { |a_rhs| productions_touched_count += 1 if a_rhs  }
+                        }
+                        productions_touched_factor = (productions_touched_count * 1.0) / grammar.productions_count
+                end
+                # K part
+                if k_consecutive_touched != nil
+                        k_consecutive_touched.keys.each do |_key|
+                                puts "-- #{_key}:#{k_consecutive_touched[_key].size} --"
+                                #k_consecutive_touched[_key].each { |_val| puts "   :: #{_val}"}
+                                k_consecutive_touched_count += k_consecutive_touched[_key].size
+                        end
+                end
+                if production_combinations != nil
+                        production_combinations.keys.each do |lhs|
+                                __rhs = production_combinations[lhs]
+                                #puts "#{lhs} :: #{__rhs}"
+                                __rhs.each do |a_rhs|
+                                        a_rhs.each do |token|
+                                                #puts " token    -- #{token}"
+                                                if (token.size > 0)
+                                                        #puts "** #{token}"
+                                                        combination_count += token.size
+                                                end
+                                                #puts " ** #{token} : #{combination_count}"
+                                        end
+                                        #puts " a_rhs -- #{a_rhs} : #{combination_count}"
+                                end
+                                #puts "##: #{combination_count}"
+                        end
+                end
+                return productions_touched_factor,k_consecutive_touched_count,combination_count
+        end
+        
+
 	def self.recursion_details(productions)
 		productions_recursive = {}
 		total_prods,recursive_prods=0,0
@@ -52,32 +92,61 @@ class Utility
                 productions_reduced.keys.each { |_key| puts "#{_key} : #{productions_reduced[_key]}" }
                 puts "----- PRODUCTION COMBINATIONS -------"
                 production_combinations = {}
-                if (productions_reduced.size > 0)
-                        productions_reduced.keys.each do |lhs|
-                                rhs_array = productions_reduced[lhs]
-                                combination_rhs_array = []
-                                rhs_array.each do |a_rhs|
-                                        combination_a_rhs = []
-                                        a_rhs.each do |token|
-                                                rhs_for_token = productions_reduced[token]
+                # we don't want to generate production_combinations based on productions_reduced, we want to keep terminals too
+#                 if (productions_reduced.size > 0)
+#                         productions_reduced.keys.each do |lhs|
+#                                 rhs_array = productions_reduced[lhs]
+#                                 combination_rhs_array = []
+#                                 rhs_array.each do |a_rhs|
+#                                         combination_a_rhs = []
+#                                         a_rhs.each do |token|
+#                                                 rhs_for_token = productions_reduced[token]
+#                                                 rhs_for_token.size.times do |ind|
+#                                                         combination_a_rhs << [token,ind]
+#                                                 end
+#                                         end
+#                                         combination_rhs_array << combination_a_rhs
+#                                 end
+#                                 production_combinations[lhs] = combination_rhs_array
+#                         end
+#                 end
+                productions.keys.each do |lhs|
+                        rhs_array = productions[lhs]
+                        combination_rhs_array = []
+                        rhs_array.each do |a_rhs|
+                                combination_a_rhs = []
+                                a_rhs.each do |token|
+                                        token_array = []
+                                        if productions.keys.include? token
+                                                rhs_for_token = productions[token]
                                                 rhs_for_token.size.times do |ind|
-                                                        combination_a_rhs << [token,ind]
+                                                        token_array << [token,ind]
                                                 end
+#                                         else
+#                                                 token_array << []
                                         end
-                                        combination_rhs_array << combination_a_rhs
+                                        combination_a_rhs << token_array
                                 end
-                                production_combinations[lhs] = combination_rhs_array
+                                combination_rhs_array << combination_a_rhs
                         end
+                        production_combinations[lhs] = combination_rhs_array
                 end
-                count = 0
                 production_combinations.keys.each do |lhs|
-                        __rhs = production_combinations[lhs]
-                        puts "#{lhs} :: #{__rhs}"
-                        __rhs.each do |a_rhs|
-                                count += a_rhs.size
+                        puts "[#{lhs}]"
+                        production_combinations[lhs].each do |_rhs|
+                                puts "#{_rhs}"
                         end
+                        puts "----"
                 end
-                puts "TOTAL COMBINATIONS: #{count}"
+#                 count = 0
+#                 production_combinations.keys.each do |lhs|
+#                         __rhs = production_combinations[lhs]
+#                         puts "#{lhs} :: #{__rhs}"
+#                         __rhs.each do |a_rhs|
+#                                 count += a_rhs.size
+#                         end
+#                 end
+#                 puts "TOTAL COMBINATIONS: #{count}"
                 puts "----- INVOKED FROM -------"
                 # A: 'b' B | 'c'  C --> A: B | | C
                 lhs_route_terminals,lhs_invoked_from = {},{}
@@ -409,7 +478,61 @@ class Utility
                 end
         end
 
-	def self.weighted_random_production_current_to_total_ratio(active_node,symbol,fitness_type,grammar,production_combinations,productions_touched,productions_used_count,w_productions_used_count,nodes_count_weight,cfactor)
+        def self.find_diff_combinations(grammar,production_combinations,lhs)
+                puts "+++ find_diff_combinations=[#{lhs}] +++" if @@debug
+                is_diff_rhs = false
+                global_rhs_array = grammar.global_production_combinations[lhs]
+                # diff_rhs_indices -- is for convenience. Check method weighted_random_production_current_to_total_ratio below.
+                diff_rhs_array,diff_rhs_indices = [],[]
+                __count = 0
+                used_combinations = 0
+                global_rhs_array.each_with_index do |global_rhs,rhs_index|
+                        current_rhs = production_combinations[lhs][rhs_index]
+                        token_diff_array = []
+                        is_token_diff = false
+                        puts "[#{lhs}] == #{global_rhs} - #{current_rhs}" if @@debug
+                        global_rhs.each_with_index do |token,token_index|
+                                puts "token: #{token} - #{current_rhs[token_index]}" if @@debug
+                                if current_rhs[token_index].size > 0
+                                        token_diff = token.sort - current_rhs[token_index].sort
+                                        (is_token_diff = true) if (token_diff.size > 0)
+                                        token_diff_array << token_diff
+                                        if (current_rhs[token_index].size > 0)
+                                                #puts "[#{lhs} :: C=#{current_rhs[token_index]} G=#{token}]"
+                                                (used_combinations += current_rhs[token_index].size)
+                                        end
+                                        __count += token_diff.size
+                                        #puts "-- #{used_combinations},#{__count} -- "
+                                elsif (token.size > 0)
+                                        is_token_diff = true
+                                        token_diff_array << token
+                                        __count += token.size
+                                end
+                        end
+                        # so at least there in one token that has a diff
+                        if is_token_diff
+                                (is_diff_rhs = true)
+                                puts "#{lhs} : #{grammar.productions[lhs][rhs_index]} :: #{token_diff_array}" if @@debug
+                        end
+                        diff_rhs_indices << is_token_diff
+                        diff_rhs_array << token_diff_array
+                end
+                puts "used_combinations: #{used_combinations}" if @@debug
+                puts "--- find_diff_combinations ---" if @@debug
+                return is_diff_rhs,used_combinations,diff_rhs_array,diff_rhs_indices
+        end
+        
+        ###
+        # returns a RHS index for a symbol
+        # productions_touched_hc -- create a list of untouched rhs indices, and then pick one
+        # production_combinations -- there are two possibilities:
+        #    1) use the symbol -- Looking down the tree -- create a list of RHS indices that have untouched combinations
+        #    2) use the active_node LHS (+ token index) as symbol (so looking down the tree for the the parent node)
+        #         -- here we use the LHS of the active_node to generate untouched combinations,
+        #         -- check if there are any entries for the sysmbol, and select a random one.
+        # Ultimately, we need to increase the fitness by touching an untouched production.
+        ###
+	def self.weighted_random_production_current_to_total_ratio(active_node,tokenIndex,symbol,fitness_type,grammar,production_combinations,productions_touched,productions_used_count,w_productions_used_count,nodes_count_weight,cfactor)
                 productions = grammar.productions
                 productions_recursive = grammar.productions_recursive[symbol]
                 terminal_productions_indices = grammar.terminal_productions_indices[symbol]
@@ -417,33 +540,57 @@ class Utility
 		depth_no_nodes << 1.0
 		depth_no_nodes << nodes_count_weight
 		_index = weighted_random_production(depth_no_nodes)
+                puts "\n++++ weighted_random_production_current_to_total_ratio: #{_index} ++++" if @@debug
 		if _index == 0
                         __index = nil
                         if (fitness_type == 'production_combinations')
                                 #puts "** production_combinations **"
+                                # when invovked from generate_sentence_tree_by_dfs, when an active_node is available
+                                # Here we use the diff combinations for a specific token in active_node RHS to select a chile node
+                                puts "** using active_node=[#{active_node}],tokenIndex=[#{tokenIndex}]" if @@debug
                                 if active_node != nil
-                                        # find the difference between production_combinations and the one in @grammar (contains all the combinations)
-                                        current_rhs = production_combinations[active_node.lhs][active_node.rhsIndex]  # ["B", 0], ["C", 2], ["A", 1]]
-                                        global_rhs = grammar.global_production_combinations[active_node.lhs][active_node.rhsIndex]  # [[B,0]]
-                                        diff_array = current_rhs.sort - global_rhs.sort   # diff [["A", 1], ["C", 2]]
-                                        matched_entries = []
-                                        diff_array.each do |a_diff|
-                                                (matched_entries << a_diff) if a_diff[0] == symbol
-                                        end
-                                        if matched_entries.size > 0
-                                                a_entry = matched_entries[rand(matched_entries.size)]
-                                                __index = a_entry[1]
-#                                                 if active_node.lhs == 'simple_expr'
-#                                                         puts " -- #{active_node.lhs}:#{active_node.rhsIndex} --"
-#                                                         puts "current_rhs: #{current_rhs.sort}"
-#                                                         puts "global_rhs : #{global_rhs.sort}"
-#                                                         puts "diff_array[#{active_node.rhsIndex}]: #{diff_array} *#{__index}*"
-#                                                 end
+                                        global_a_rhs_array = grammar.global_production_combinations[active_node.lhs][active_node.rhsIndex]
+                                        current_a_rhs_array = production_combinations[active_node.lhs][active_node.rhsIndex]
+                                        puts " **global: #{global_a_rhs_array}" if @@debug
+                                        puts " **current: #{current_a_rhs_array}" if @@debug
+                                        global_rhs_token_array = global_a_rhs_array[tokenIndex]
+                                        current_rhs_token_array = current_a_rhs_array[tokenIndex]
+                                        #[[A,0],[A,1]] - []
+                                        diff_array = global_rhs_token_array.sort - current_rhs_token_array.sort
+                                        puts "diff_array: #{diff_array}" if @@debug
+                                        untouched_rhs_indices = []
+                                        #[0,1]
+                                        diff_array.each { |each_diff| untouched_rhs_indices << each_diff[1] }
+                                        puts "untouched_rhs_indices: #{untouched_rhs_indices}" if @@debug
+                                        if untouched_rhs_indices.size > 0
+                                                untouched_rhs_indices_val = []
+                                                untouched_rhs_indices.size.times { |v| untouched_rhs_indices_val << 1.0  }
+                                                __index = untouched_rhs_indices[weighted_random_production(untouched_rhs_indices_val)]
+                                                puts "diff_array=#{diff_array}, index selected: #{__index}" if @@debug
                                                 return __index
                                         end
+                                else
+                                        # when invovked from generate_sentence_tree_by_dfs, at the beginning, when you only have LHS symbol
+                                        # here you use LHS to create a lost of RHS indices that have diff combinations
+                                        # LOGIC is different to the above.
+                                        if symbol != nil
+                                                is_diff_rhs,used_combinations,diff_rhs_array,diff_rhs_indices = find_diff_combinations(grammar,production_combinations,symbol)
+                                                puts "** symbol != nil :: diff_rhs_array: #{diff_rhs_array}" if @@debug
+                                                if is_diff_rhs
+                                                        # diff_rhs_indices -- contains indices that have a difference
+                                                        diff_rhs_indices_true_indices = []
+                                                        diff_rhs_indices.each_with_index { |val,ind| (diff_rhs_indices_true_indices << ind) if val}
+                                                        diff_rhs_indices_true_indices_val = []
+                                                        diff_rhs_indices_true_indices.size.times { |v| diff_rhs_indices_true_indices_val << 1.0 }
+                                                        __index = diff_rhs_indices_true_indices[weighted_random_production(diff_rhs_indices_true_indices_val)]
+                                                        puts "diff_array=#{diff_rhs_indices_true_indices}, index selected: #{__index}" if @@debug
+                                                        return __index
+                                                end
+                                        end
                                 end
-                                # if there is a difference then we know that th
-                                ## given a symbol, we look for 
+
+
+                                
                         elsif (fitness_type == 'productions_touched_hc')
                                 # we now change this algorithm
                                 # - we first try to find a unused production. if all have been used, then use weighted_random_production
@@ -461,6 +608,7 @@ class Utility
                                         return __index
                                 end
                         end
+                        puts "** RANDOM ONE ***"  if @@debug
                         ## if we are still nil, then we resort to a random one.
                         if __index == nil
                                 # all parts have been used,then we resort to our original alogrighm: that is select one of them

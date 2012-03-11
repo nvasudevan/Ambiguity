@@ -10,7 +10,7 @@ STDOUT.sync = true
 QUOTE = "\'"
 
 class Grammar
-	attr_accessor :grammar,:productions,:productions_recursive,:terminal_productions_indices,:terminal_productions_count,:productions_count,:lhs_route_terminals,:recursive,:lhs_invoked_from,:global_production_combinations,:token_to_terminals,:inherent_ambiguity,:ambiguous_rule
+	attr_accessor :grammar,:productions,:productions_recursive,:terminal_productions_indices,:terminal_productions_count,:productions_count,:lhs_route_terminals,:recursive,:lhs_invoked_from,:global_production_combinations,:global_production_combinations_count,:token_to_terminals,:inherent_ambiguity,:ambiguous_rule
         
 	def initialize(grammar)
 		@grammar = grammar
@@ -23,6 +23,7 @@ class Grammar
                 @lhs_route_terminals = {}
                 @lhs_invoked_from = {}
                 @global_production_combinations = {}
+                @global_production_combinations_count = 0
 		@token_to_terminals = {}
 		@inherent_ambiguity = false
 		@ambiguous_rule = ''
@@ -139,8 +140,9 @@ class Grammar
 		}
 		# recursion check
 		@productions_recursive = Utility.recursion_details(@productions)
-# 		@recursive = Utility.check_recursive(@productions)
                 @recursive,@lhs_route_terminals,@lhs_invoked_from,@global_production_combinations = Utility.route_to_terminals_and_invoked_from(@productions)
+                x,y,@global_production_combinations_count = Utility.calc_production_touched_factor(@grammar,nil,nil,@global_production_combinations)
+                puts "TOTAL COMBINATIONS: #{@global_production_combinations_count}"
 	end
 
         def print_grammar_details()

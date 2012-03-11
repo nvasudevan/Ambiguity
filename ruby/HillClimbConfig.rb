@@ -8,8 +8,9 @@ module HillClimbConfig
 	# options: time [mins], memory [KB]
 	TERMINATE_BY="time"
         K_CONSECUTIVE_TOUCH=2
-	MAX_TIME=120
+	MAX_TIME=30
 	MAX_MEMLIMIT=1048576
 	MAX_DEPTH=4000
         SEARCH_MODE="complex" # simple, complex
+        DEBUG=false
 end
