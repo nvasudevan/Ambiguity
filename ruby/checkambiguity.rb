@@ -41,7 +41,7 @@ hillClimb.print_hc_details
 if grammar.inherent_ambiguity
 	message = "#{grammar.ambiguous_rule} - inherently ambiguous!"
 else
-	logs_grammar_file = File.open("/logs/grammar_file","w"); logs_grammar_file.write(grammar_file);logs_grammar_file.close
+	logs_grammar_file = File.open("logs/grammar_file","w"); logs_grammar_file.write(grammar_file);logs_grammar_file.close
 	while (!Utility.limit_reached(grammar_file,@@starttime)) do # 60, 600
 		begin
 			puts "G=#{grammar_file} cfactor=#{cfactor} no_nodes_factor=#{no_nodes_factor} weighted_fn=#{weighted_function} fitness=#{fitness_type}"

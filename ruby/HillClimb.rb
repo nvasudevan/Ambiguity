@@ -75,10 +75,10 @@ class HillClimb
 	def check_amb
 		# create a lock file & check ambiguity
 		puts "+++ [check_amb] Time: #{Time.now}"
-		lock = File.open("/logs/lock","w");lock.close # lock.write(@grammar);lock.close;
+		lock = File.open("logs/lock","w");lock.close # lock.write(@grammar);lock.close;
 		while true do
 			sleep(1)
-			break if ! (File.exists?("/logs/lock"))
+			break if ! (File.exists?("logs/lock"))
 		end
 		(puts "There was a problem parsing the sentence. exiting...";exit) if (File.exists?("grammars/#{@grammar.grammar}/error"))
 

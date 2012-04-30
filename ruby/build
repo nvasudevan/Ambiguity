@@ -1,15 +1,10 @@
 #!/bin/sh
 #
-CODESPACE="/home/nvasudevan/codespace"
-ACCENT="${CODESPACE}/accent/accent"
-ENTIRE="${CODESPACE}/entire/entire.c"
-LEX="/usr/bin/flex"
+CODESPACE=`pwd`/..
+ACCENT="${CODESPACE}/accent/accent/accent"
+ENTIRE="${CODESPACE}/accent/entire/entire.c"
+LEX="flex"
 CC="/usr/bin/cc"
-JAVA_HOME="/usr/java/jdk1.6.0_20"
-JAVAH="${JAVA_HOME}/bin/javah"
-JAVAC="${JAVA_HOME}/bin/javac"
-JAVA="${JAVA_HOME}/bin/java"
-RUBY="/apps/ruby/current/bin/ruby"
 AUXIL="${CODESPACE}/ruby/grammars/auxil.c"
 
 usage() {
@@ -86,9 +81,9 @@ then
 	shift
 	if [[ "${1}" != "0" && "${2}" != "0" ]]
 	then
-		./checkambiguity.rb ${grammar} ${1} ${2}
+		ruby ./checkambiguity.rb ${grammar} ${1} ${2}
 	else
-		./checkambiguity.rb ${grammar}
+		ruby ./checkambiguity.rb ${grammar}
 	fi
 else
 	if [ -d grammars/${1} ]

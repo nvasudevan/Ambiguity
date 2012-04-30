@@ -4,8 +4,8 @@
 MAX_MEMLIMIT="`grep MAX_MEMLIMIT HillClimbConfig.rb | sed -e 's/\"//g' | awk -F= '{print $2}'`"
 MAX_TIME="`grep MAX_TIME HillClimbConfig.rb | sed -e 's/\"//g' | awk -F= '{print $2}'`"
 echo "MAX_MEMLIMIT: ${MAX_MEMLIMIT}, MAX_TIME: ${MAX_TIME}"
-LOCK="/logs/lock"
-GRAMMAR_FILE="/logs/grammar_file"
+LOCK="logs/lock"
+GRAMMAR_FILE="logs/grammar_file"
 while true
 do
 	# we do anything only if /logs/grammar_file file exists.
