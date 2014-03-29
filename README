@@ -1,4 +1,2 @@
-git add ruby
-git commit -m "release - fitness function -- length,production_touched,k=N"
-git push -u origin master
-
+This is a search-based implementation using Hill Climbing approach for 
+detecting ambiguity in CFGs
